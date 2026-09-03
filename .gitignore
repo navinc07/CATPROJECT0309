@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# SQLite database (regenerate with: python app/data_ingestion.py)
+data/soc_assistant.db
+
+# Generated CSVs (regenerate with: python data/generate_synthetic_data.py)
+# Uncomment below if you want to exclude CSVs from git (they are ~3MB total).
+# They are currently INCLUDED so reviewers can inspect the data without running
+# the generator. Comment these out if repo size becomes a concern.
+# data/alerts.csv
+# data/analyst_decisions.csv
+# data/endpoint_context.csv
+# data/incident_labels.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Virtual environments
+venv/
+.env/
+env/

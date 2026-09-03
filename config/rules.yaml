@@ -1,0 +1,200 @@
+# config/rules.yaml
+# ==================
+# Configurable thresholds for the False-Positive Reduction Assistant.
+#
+# DESIGN RATIONALE (important for viva):
+#   All business thresholds live here, NOT in Python code. This means:
+#   (a) The SOC Lead can tune thresholds without touching or redeploying code.
+#   (b) Config changes are auditable via git diff on this file.
+#   (c) The recommendation engine logic (the "how") stays in Python;
+#       the tuning parameters (the "how much") stay here.
+#
+# HOW TO EDIT:
+#   Change values in this file. The FastAPI app loads this at startup
+#   and also via the PUT /config/rules endpoint (SOC Lead only).
+#   Changes via the API are written back to this file.
+#
+# SAFETY NOTICE:
+#   The Python code enforces a HARD FLOOR on auto_suggest_threshold (0.60)
+#   and a HARD CEILING on max_allowed_miss_rate (0.10 = 10%).
+#   These floors/ceilings are NOT configurable — they are deliberate safety
+#   guardrails documented in app/recommendation_engine.py.
+#   Setting values outside these ranges via this file or the API will cause
+#   the system to log a WARNING and use the guardrail value instead.
+
+# ---------------------------------------------------------------------------
+# Evidence and confidence thresholds
+# ---------------------------------------------------------------------------
+evidence:
+  # Minimum number of historical cases of the same (alert_type, source_segment)
+  # pattern required before the assistant will make ANY recommendation.
+  # Below this count: recommendation = INSUFFICIENT_EVIDENCE, HUMAN_REVIEW_REQUIRED.
+  # Rationale: A recommendation based on 2 prior cases is not statistically
+  # meaningful; 10 is a conservative minimum for a proportional claim.
+  min_evidence_count: 10
+
+  # Minimum fraction of historical cases that must be false_positive for the
+  # assistant to suggest "false_positive" disposition.
+  # Below this: assistant suggests HUMAN_REVIEW_REQUIRED (too ambiguous).
+  min_fp_rate_for_suggestion: 0.80
+
+  # If the observed FP rate in history is above this threshold AND evidence
+  # count >= min_evidence_count, the assistant suggests false_positive with
+  # high confidence.
+  high_confidence_fp_threshold: 0.90
+
+  # Number of historical cases (lookback window) used when computing
+  # the FP rate for a given pattern. "Last N cases" prevents stale
+  # history from dominating the recommendation.
+  lookback_window: 100
+
+# ---------------------------------------------------------------------------
+# Conflict detection
+# ---------------------------------------------------------------------------
+conflict:
+  # If at least this many historical decisions for the same pattern are
+  # TRUE_POSITIVE (contradicting a predominantly FP pattern), treat it
+  # as conflicting evidence and ESCALATE instead of suggesting FP.
+  # Rationale: Even 2 TPs in a nominally FP pattern is a red flag that
+  # the pattern is not as clean as it appears.
+  conflict_threshold: 2
+
+  # Additionally, if the TP fraction of historical decisions exceeds this,
+  # escalate regardless of overall count.
+  conflict_tp_fraction: 0.10
+
+# ---------------------------------------------------------------------------
+# Endpoint anomaly signals
+# ---------------------------------------------------------------------------
+# These signals, when present in endpoint_context, cause the assistant to
+# override an otherwise-confident FP suggestion with ANOMALY_SIGNAL_DETECTED.
+# Rationale: The novel TP design (docs/02_workflow_map.md §4.4) shows that
+# surface pattern matching is insufficient; endpoint context is load-bearing.
+anomaly_signals:
+  # If the device has this many or more known vulnerabilities, it's anomalous
+  # relative to the typical managed-device FP clusters (which have 0).
+  known_vuln_count_threshold: 2
+
+  # An unpatched device is anomalous relative to the FP clusters (all patched).
+  unpatched_triggers_anomaly: true
+
+  # An unmanaged device in a normally-managed segment is anomalous.
+  unmanaged_triggers_anomaly: true
+
+  # If dst_ip is an external (non-RFC1918) address for a pattern whose
+  # historical FPs all had internal dst_ips, flag as anomaly.
+  external_dst_ip_triggers_anomaly: true
+
+# ---------------------------------------------------------------------------
+# Confidence tiers (used in API response field "confidence_tier")
+# ---------------------------------------------------------------------------
+confidence_tiers:
+  # FP rate >= high_confidence_fp_threshold AND evidence >= min_evidence_count
+  # AND no anomaly signals → HIGH
+  high:
+    label: "HIGH"
+    description: "Strong historical evidence supports this recommendation."
+
+  # FP rate >= min_fp_rate_for_suggestion AND evidence >= min_evidence_count
+  # AND no anomaly signals → MEDIUM
+  medium:
+    label: "MEDIUM"
+    description: "Moderate evidence; human review recommended but not mandatory."
+
+  # Any other case where a suggestion is made
+  low:
+    label: "LOW"
+    description: "Weak evidence; treat as a hint, not a decision."
+
+  # No recommendation possible
+  insufficient:
+    label: "INSUFFICIENT_EVIDENCE"
+    description: "Too few historical cases to make a reliable recommendation."
+
+# ---------------------------------------------------------------------------
+# Auto-suggestion eligibility
+# ---------------------------------------------------------------------------
+# Only alert_types listed here are eligible for auto-suggestion (i.e., the
+# assistant will proactively present a recommendation without being asked).
+# Alert types NOT in this list will return a recommendation only if explicitly
+# requested, with a note that the type is not in the auto-suggestion whitelist.
+#
+# RATIONALE for the whitelist approach: High-severity alert types (LATERAL_MOVE,
+# DATA_EXFIL, MALWARE_CALLBACK) should NEVER be auto-suggested as FP even if
+# a pattern exists, because the cost of a miss is catastrophic. They are
+# excluded here to add an extra layer of protection beyond the confidence threshold.
+auto_suggest_eligible_alert_types:
+  - DHCP_EXHAUSTION
+  - DNS_FLOOD
+  - ARP_SPOOF
+  - POLICY_VIOLATION
+  - FAILED_AUTH
+  - PORT_SCAN
+
+# Alert types that are NEVER eligible for auto-suggestion (explicit denylist,
+# belt-and-suspenders with the whitelist above).
+auto_suggest_excluded_alert_types:
+  - LATERAL_MOVE
+  - DATA_EXFIL
+  - MALWARE_CALLBACK
+
+# ---------------------------------------------------------------------------
+# High-impact action classification
+# ---------------------------------------------------------------------------
+# Actions classified as "high-impact" ALWAYS require SOC Lead (L2) confirmation
+# before execution. This list is checked in app/main.py and cannot be bypassed
+# by confidence score or config threshold.
+#
+# HARD RULE IN CODE (not configurable): If action_type is in high_impact_actions,
+# requires_human_confirmation is ALWAYS True, regardless of confidence tier.
+high_impact_actions:
+  - auto_suppress        # suppress an entire alert pattern globally
+  - bulk_close           # close multiple alerts in one action
+  - rule_disable         # disable an IDS/SIEM rule
+
+# ---------------------------------------------------------------------------
+# Auto-suppression threshold
+# ---------------------------------------------------------------------------
+# Confidence fraction above which the assistant may PROPOSE auto-suppression
+# for SOC Lead approval. Note: SOC Lead must still confirm (see high_impact_actions).
+# HARD FLOOR IN CODE: 0.60 (system refuses values below this)
+# HARD CEILING IN CODE: Not applicable here (ceiling is on miss_rate below)
+auto_suggest_threshold: 0.92
+
+# ---------------------------------------------------------------------------
+# Missed-incident rate ceiling
+# ---------------------------------------------------------------------------
+# The assistant must NOT make recommendations that, in aggregate, would
+# cause the missed-incident rate to exceed this value.
+# This is the core precision/recall tradeoff control.
+# Lowering this value makes the assistant more conservative (fewer FP suggestions
+# but fewer missed incidents); raising it allows more automation at higher risk.
+#
+# HARD CEILING IN CODE: 0.10 (10%) — system refuses values above 0.10
+# because above 10% miss rate, the assistant is causing more harm than good.
+# This ceiling is documented in app/recommendation_engine.py as a
+# non-configurable safety guardrail.
+max_allowed_miss_rate: 0.02
+
+# ---------------------------------------------------------------------------
+# Role permissions
+# ---------------------------------------------------------------------------
+# Which roles can access which endpoint categories.
+# Roles not listed for an endpoint get 403 Forbidden.
+# This is enforced in app/main.py via the check_role() dependency.
+role_permissions:
+  l1_analyst:
+    - alerts:read
+    - alerts:recommend
+    - alerts:disposition
+    - view:l1
+  soc_lead:
+    - alerts:read
+    - alerts:read_all        # can see all analysts' queues
+    - alerts:recommend
+    - alerts:disposition
+    - config:read
+    - config:write
+    - view:l1
+    - view:soc_lead          # includes override audit, aggregate metrics
+    - actions:approve_high_impact
