@@ -1,7 +1,7 @@
 # Baseline Report — Before Assistant Introduction
 
 **Project:** C28 — AI Immersion (Semester 5)  
-**Generated:** 2026-09-03 14:22:07  
+**Generated:** 2026-09-18 11:08:26  
 **Dataset period:** 30 days (2026-07-01 to 2026-07-30)  
 **Data source:** Synthetic dataset (seed=42); see `data/README_dataset.md`
 
@@ -116,11 +116,11 @@ alerts deserve more investigative attention per alert.
 **Distinct override reason phrases:** 6
 
 Sample override reasons (signals analyst frustration points):
-- *"User has prior incident history; increasing caution"*
-- *"Similar alert flagged as TP last week; not comfortable auto-closing"*
-- *"Timing suggests coordinated scan, not random DHCP churn"*
-- *"Observed suspicious process spawned after connection; not typical DHCP noise"*
 - *"Pattern matches usual captive-portal noise; closing as FP"*
+- *"User has prior incident history; increasing caution"*
+- *"Device is not on expected VLAN for this alert type"*
+- *"Observed suspicious process spawned after connection; not typical DHCP noise"*
+- *"Similar alert flagged as TP last week; not comfortable auto-closing"*
 
 **Observation:** Override rate in Phase 1 is the baseline. If the Phase 2
 assistant recommendations are better calibrated, the override rate should

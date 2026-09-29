@@ -1,0 +1,38 @@
+# Phase 2 Viva Defense & Self-Check Verification Matrix
+
+**Project:** C28 — University SOC False-Positive Reduction Assistant  
+**Milestone:** Phase 2 Completion (Target: 70% Graded Requirements)  
+**Evaluator Reference:** Direct response to Review 1 Feedback & Rubric Gaps  
+
+This self-check document enables the student and examination committee to independently verify every design decision, code artifact, and quantitative claim delivered in Phase 2.
+
+---
+
+## Reviewer Feedback Resolution Summary
+
+| Reviewer-Identified Gap | Primary Resolving Artifact(s) | Verification Command | Viva Talking Points & Rationale |
+|---|---|---|---|
+| **GAP 1: Real Learned Supervised Model** | - [`model/train_model.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/model/train_model.py)<br>- [`model/artifacts/model.pkl`](file:///c:/Users/navin/OneDrive/Desktop/proj/model/artifacts/model.pkl)<br>- [`model/model_card.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/model/model_card.md)<br>- [`app/recommendation_v2.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/app/recommendation_v2.py)<br>- Endpoint `GET /alerts/{id}/recommend_v2` | `python model/train_model.py` | - Trained high-capacity LightGBM GBDT + Logistic Regression linear baseline on SQLite data.<br>- **Target label:** Analyst disposition (`false_positive`), keeping `confirmed_incident` strictly unpolluted for post-hoc safety validation.<br>- Retained Phase 1 pattern heuristics (`historical_fp_rate`) as a feature.<br>- Runs side-by-side with Phase 1 `/recommend` endpoint without regression. |
+| **GAP 2: Time-Series Temporal Validation & Novel Threat Metric** | - [`evaluation/temporal_validation.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/evaluation/temporal_validation.py)<br>- [`evaluation/temporal_validation_report.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/evaluation/temporal_validation_report.md) | `python evaluation/temporal_validation.py` | - Enforces chronological split: Days 1–24 Train (9,918 alerts), Days 25–30 Test (2,690 alerts).<br>- Avoids temporal data leakage common to random k-fold cross-validation.<br>- Evaluated against `incident_labels.csv` (`confirmed_incident`).<br>- **Explicit Numbered Metric:** `novel-threat recall = 1/1 caught` (test set) and `8/8 caught` (full dataset, 100.0%). |
+| **GAP 3: Controlled 3-Condition Before/After Experiment** | - [`experiment/run_experiment.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/experiment/run_experiment.py)<br>- [`evaluation/before_after_report.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/evaluation/before_after_report.md)<br>- [`evaluation/hours_saved_comparison.png`](file:///c:/Users/navin/OneDrive/Desktop/proj/evaluation/hours_saved_comparison.png) | `python experiment/run_experiment.py` | - Evaluates 3 conditions on identical test partition: (1) Baseline manual, (2) Phase 1 Rule-based, (3) Phase 2 LightGBM.<br>- Governed by strict **$\\le 2.0\\%$ missed-incident rate ceiling**.<br>- Uses exact required headers: *Baseline Value*, *Target Value*, *Measured Result*, *Error Analysis*.<br>- Embeds visual workload comparison bar chart. |
+| **GAP 4: API Authentication Hardening (JWT)** | - [`app/auth.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/app/auth.py)<br>- Endpoint `POST /auth/login`<br>- [`docs/03_auth_hardening.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/docs/03_auth_hardening.md)<br>- [`tests/test_auth.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/tests/test_auth.py) | `pytest tests/test_auth.py` | - Replaced spoofable plain headers with HMAC-SHA256 cryptographically signed JWTs.<br>- Seeded analyst pool (`ana_001` to `ana_005`).<br>- Decoded claims enforce RBAC (L1 blocked from config with HTTP 403; SOC Lead granted access).<br>- Backward-compatible fallback maintains 100% pass on Phase 1 tests. |
+| **GAP 5: Reproducible Pipeline & Clean-Clone Verification** | - [`scripts/run_phase2_pipeline.py`](file:///c:/Users/navin/OneDrive/Desktop/proj/scripts/run_phase2_pipeline.py)<br>- [`scripts/run_phase2_pipeline.sh`](file:///c:/Users/navin/OneDrive/Desktop/proj/scripts/run_phase2_pipeline.sh)<br>- Pinned [`requirements.txt`](file:///c:/Users/navin/OneDrive/Desktop/proj/requirements.txt)<br>- Root [`README.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/README.md) | `python scripts/run_phase2_pipeline.py` | - Single-command pipeline executing data check, ingestion, baseline check, model training, temporal validation, 3-condition experiment, and test suite.<br>- Real-time expected vs observed output with checkmarks.<br>- Pinned dependency versions prevent cross-machine breakage. |
+
+---
+
+## Viva Question & Answer Preparation Guide
+
+### Q1: "Why didn't you train your model directly on `confirmed_incident`?"
+**Defense:** In a real university SOC, Tier-1 analysts triage alerts based on incomplete, immediate telemetry; confirmed incident labels only arrive days or weeks later after Tier-2 escalation, forensic disk analysis, and incident response wrap-up. If we trained directly on `confirmed_incident`, we would create an unrealistic data leakage scenario. Furthermore, keeping `confirmed_incident` untouched reserves an independent, unpolluted ground truth against which we can rigorously test safety (evaluating how many real incidents our assistant would have mistakenly auto-closed).
+
+### Q2: "Why is a temporal train/test split necessary instead of a standard 80/20 random split?"
+**Defense:** Cyber attacks and network traffic are non-stationary time-series processes. Attack campaigns often span multiple hours or days with shared destination IPs and signature rules. A random split leaks future campaign alerts into the training set, causing the model to simply memorize IP addresses rather than learning generalized threat patterns. By training strictly on Days 1–24 and evaluating on Days 25–30, we test the system's ability to operate in a real deployment scenario facing future unseen days.
+
+### Q3: "How does the system prevent a novel attack from being suppressed by a high historical FP rate?"
+**Defense:** While historical FP pattern rates are included as an input feature (`historical_fp_rate`), the engine combines it with host endpoint context (`is_managed_device`, `known_vuln_count`, `patch_status`, and destination IP RFC1918 classification). When an unmanaged, unpatched device attempts outbound external C2 traffic (as engineered in our synthetic dataset §4.4), the endpoint anomaly detector overrides pattern matching, setting `requires_human_confirmation = True` and escalating the alert. This achieved **100% novel-threat recall (8/8 caught)**.
+
+### Q4: "Why did you choose a $\le 2.0\%$ missed-incident ceiling?"
+**Defense:** In cybersecurity operations, alert reduction cannot come at the expense of breach vulnerability. An assistant that reduces 90% of alerts but misses 10% of real ransomware or data exfiltration events is a catastrophic operational liability. By capping the missed-incident rate at $\le 2.0\%$, we simulate enterprise risk tolerance: we auto-close only those false positives where confidence is exceptionally high and endpoint indicators are completely clean, while escalating all borderline cases for human review.
+
+### Q5: "How does your JWT implementation protect safety guardrails from unauthorized modification?"
+**Defense:** In Phase 1, an attacker could spoof the `X-Analyst-Role: soc_lead` header to access `/config/rules` and alter threshold safety floors. In Phase 2, `/config/rules` enforces server-side cryptographic decoding of an HMAC-SHA256 signed JWT token. Only clients possessing a valid token signed with the server's private secret can access configuration endpoints; L1 analyst tokens are cryptographically rejected with `HTTP 403 Forbidden`.

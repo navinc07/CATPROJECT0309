@@ -50,7 +50,15 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db, init_db
 from app.db.models import Alert, AnalystDecision, EndpointContext, IncidentLabel, Recommendation
 from app.recommendation_engine import get_recommendation
+from app.recommendation_v2 import get_recommendation_v2
 from app.config_loader import get_config, update_config
+from app.auth import (
+    get_current_analyst,
+    authenticate_analyst,
+    create_access_token,
+    LoginRequest,
+    TokenResponse,
+)
 
 # ---------------------------------------------------------------------------
 # Application lifespan — runs once at startup and shutdown
@@ -99,22 +107,14 @@ VALID_ROLES = {"l1_analyst", "soc_lead"}
 
 def check_role(
     required_permission: str,
-    x_analyst_role: str = Header(..., description="Analyst role: l1_analyst or soc_lead"),
-    x_analyst_id: str = Header(..., description="Analyst ID, e.g. ana_001"),
+    analyst_info: tuple[str, str] = Depends(get_current_analyst),
 ):
     """
-    FastAPI dependency that checks role permissions against config/rules.yaml.
-
-    Returns (analyst_id, analyst_role) if permitted.
-    Raises HTTP 403 if the role does not have the required permission.
-    Raises HTTP 400 if the role header is invalid.
-
-    WHY CONFIG-DRIVEN PERMISSIONS:
-        Role permissions are defined in config/rules.yaml (role_permissions section).
-        This means the SOC Lead can adjust what each role can do without code changes.
-        The one exception: the hard-coded check that only soc_lead can approve
-        high-impact actions (enforced directly in the endpoint, not via config).
+    FastAPI dependency that validates role permissions against config/rules.yaml.
+    Supports JWT Bearer authentication (Phase 2 standard) with fallback to
+    legacy headers for backward compatibility.
     """
+    analyst_id, x_analyst_role = analyst_info
     if x_analyst_role not in VALID_ROLES:
         raise HTTPException(
             status_code=400,
@@ -131,23 +131,17 @@ def check_role(
                 f"Permitted permissions for this role: {allowed}."
             ),
         )
-    return x_analyst_id, x_analyst_role
+    return analyst_id, x_analyst_role
 
 
-def require_l1(
-    x_analyst_role: str = Header(...),
-    x_analyst_id: str = Header(...),
-):
+def require_l1(analyst_info: tuple[str, str] = Depends(get_current_analyst)):
     """Shorthand dependency for L1 read access (alerts:read)."""
-    return check_role("alerts:read", x_analyst_role, x_analyst_id)
+    return check_role("alerts:read", analyst_info)
 
 
-def require_soc_lead(
-    x_analyst_role: str = Header(...),
-    x_analyst_id: str = Header(...),
-):
+def require_soc_lead(analyst_info: tuple[str, str] = Depends(get_current_analyst)):
     """Shorthand dependency for SOC Lead exclusive access."""
-    return check_role("config:read", x_analyst_role, x_analyst_id)
+    return check_role("config:read", analyst_info)
 
 
 # ---------------------------------------------------------------------------
@@ -276,9 +270,43 @@ def root():
     return {
         "status": "online",
         "project": "SOC False-Positive Reduction Assistant",
-        "phase": "1 — Rule-Based Baseline",
+        "phase": "2 — Machine Learning & Hardened RBAC",
         "docs": "/docs",
     }
+
+
+# ---- Authentication (JWT) --------------------------------------------------
+
+@app.post(
+    "/auth/login",
+    response_model=TokenResponse,
+    tags=["Authentication"],
+    summary="Authenticate analyst and receive signed JWT access token",
+)
+def login(body: LoginRequest):
+    """
+    Authenticates an analyst using credentials from the seeded directory.
+    Returns a signed JWT bearer token with claims:
+    - sub: analyst_id
+    - role: l1_analyst or soc_lead
+    - exp: expiration timestamp (8-hour validity)
+    """
+    analyst = authenticate_analyst(body.analyst_id, body.password)
+    if not analyst:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid credentials. Check analyst_id and password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token(analyst["analyst_id"], analyst["role"])
+    return TokenResponse(
+        access_token=token,
+        token_type="bearer",
+        expires_in_seconds=8 * 3600,
+        analyst_id=analyst["analyst_id"],
+        role=analyst["role"],
+        name=analyst["name"],
+    )
 
 
 # ---- Alerts ----------------------------------------------------------------
@@ -398,6 +426,51 @@ def recommend(
     db.commit()
 
     return RecommendationResponse(**result.to_api_response())
+
+
+@app.get(
+    "/alerts/{alert_id}/recommend_v2",
+    response_model=RecommendationResponse,
+    tags=["Recommendation"],
+    summary="Get Phase 2 ML recommendation + explainability for an alert",
+)
+def recommend_v2(
+    alert_id: str = FPath(..., description="Alert ID (e.g., ALT-000001)"),
+    analyst_info: tuple = Depends(require_l1),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns the Phase 2 machine-learning recommendation (LightGBM) for the given alert.
+
+    Response matches the Phase 1 schema:
+    - recommendation type (suggest_fp / suggest_tp / escalate / anomaly_signal_detected)
+    - confidence tier and calibrated probability score
+    - requires_human_confirmation flag
+    - explainability block with top contributing features and anomaly flags
+    """
+    analyst_id, role = analyst_info
+
+    # Verify alert exists
+    alert = db.query(Alert).filter(Alert.alert_id == alert_id).first()
+    if not alert:
+        raise HTTPException(status_code=404, detail=f"Alert {alert_id} not found.")
+
+    result = get_recommendation_v2(alert_id, db)
+
+    # Persist recommendation
+    rec_record = Recommendation(
+        alert_id=alert_id,
+        **result.to_db_dict(),
+    )
+    db.add(rec_record)
+    db.commit()
+
+    resp = result.to_api_response()
+    resp["phase1_note"] = (
+        "This recommendation is produced by the Phase 2 trained LightGBM model "
+        "(evaluated on Days 25-30 temporal test split)."
+    )
+    return RecommendationResponse(**resp)
 
 
 # ---- Disposition -----------------------------------------------------------

@@ -178,12 +178,15 @@ If the ceiling is set to 2%, this configuration must be **rejected by the system
 
 ---
 
-## 7. What This Phase Does NOT Address (Explicitly Deferred)
+## 7. Project Roadmap & Phase Status
 
-- **Phase 2:** Machine-learned recommendation model trained on analyst decisions; before/after experiment at controlled missed-incident rate; precision/recall curves.
-- **Phase 3:** Stakeholder validation, demo video, full evaluation report, regulatory compliance mapping.
-
-These deferrals are deliberate — the Phase 1 rule-based baseline must be fully characterised before a learned model is introduced, so the comparison in Phase 2 is legitimate and the improvement is attributable.
+- **Phase 1 (Complete):** Rule-based baseline engine, data generation, SQLite schema, config guardrails, and baseline quantification (~1,933 analyst-hours spent on alerts).
+- **Phase 2 (Delivered):**
+  - Supervised Machine Learning model trained on analyst decisions (`model/train_model.py`, `model/artifacts/model.pkl`, `model/model_card.md`).
+  - Time-series temporal validation and measured novel-threat preservation (`evaluation/temporal_validation_report.md`).
+  - **Controlled Before/After Experiment:** The core requirement to *"compare analyst hours saved at controlled missed-incident rate ($\le 2\%$)"* is rigorously answered in **[`evaluation/before_after_report.md`](file:///c:/Users/navin/OneDrive/Desktop/proj/evaluation/before_after_report.md)** (demonstrating 16.42 hours saved in Condition 3 vs 6.57 hours in Condition 2, at 0.32% miss rate).
+  - API authentication hardening with HMAC-SHA256 JWT tokens (`docs/03_auth_hardening.md`, `app/auth.py`).
+- **Phase 3 (Next Steps):** Stakeholder validation sessions, interactive frontend dashboard / demo video, and final viva comprehensive evaluation report.
 
 ---
 

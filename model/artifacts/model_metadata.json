@@ -1,0 +1,71 @@
+{
+  "trained_at": "2026-09-18T05:38:31.297573+00:00",
+  "model_type": "LightGBM Classifier (Phase 2)",
+  "temporal_split_date": "2026-07-25T00:00:00Z",
+  "train_size": 9918,
+  "test_size": 2690,
+  "calibrated_threshold": 0.97,
+  "metrics": {
+    "logistic_regression": {
+      "auc": 0.9302,
+      "accuracy": 0.9342,
+      "precision": 0.9333,
+      "recall": 0.9741,
+      "f1": 0.9533
+    },
+    "lightgbm": {
+      "auc": 0.9248,
+      "accuracy": 0.9335,
+      "precision": 0.9324,
+      "recall": 0.9741,
+      "f1": 0.9528
+    },
+    "safety_calibration": {
+      "threshold": 0.97,
+      "achieved_miss_rate_pct": 0.97,
+      "total_confirmed_incidents_test": 619
+    }
+  },
+  "top_features": [
+    {
+      "feature": "num__raw_score",
+      "importance": 1753.0
+    },
+    {
+      "feature": "num__historical_fp_rate",
+      "importance": 634.0
+    },
+    {
+      "feature": "num__known_vuln_count_clean",
+      "importance": 497.0
+    },
+    {
+      "feature": "num__severity",
+      "importance": 396.0
+    },
+    {
+      "feature": "num__anomaly_signal_count",
+      "importance": 196.0
+    },
+    {
+      "feature": "cat__device_type_tablet",
+      "importance": 149.0
+    },
+    {
+      "feature": "cat__patch_status_fully_patched",
+      "importance": 125.0
+    },
+    {
+      "feature": "cat__patch_status_partially_patched",
+      "importance": 123.0
+    },
+    {
+      "feature": "cat__device_type_unknown",
+      "importance": 90.0
+    },
+    {
+      "feature": "cat__device_type_laptop",
+      "importance": 75.0
+    }
+  ]
+}
